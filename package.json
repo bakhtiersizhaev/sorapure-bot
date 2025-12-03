@@ -1,0 +1,44 @@
+{
+    "name": "sorapure-bot",
+    "version": "1.0.0",
+    "description": "Telegram bot for downloading Sora2 videos without watermark",
+    "main": "src/bot.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/bot.js",
+        "dev": "node --watch src/bot.js",
+        "lint": "eslint src/",
+        "lint:fix": "eslint src/ --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "author": "Bakhtier Sizhaev <ai2key>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/summerlinex/sorapure-bot"
+    },
+    "keywords": [
+        "sora",
+        "sora2",
+        "openai",
+        "telegram",
+        "bot",
+        "video",
+        "download",
+        "watermark"
+    ],
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "axios": "^1.7.0",
+        "dotenv": "^16.4.0",
+        "grammy": "^1.30.0"
+    },
+    "devDependencies": {
+        "eslint": "^9.15.0",
+        "globals": "^15.13.0",
+        "prettier": "^3.4.2"
+    }
+}
