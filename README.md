@@ -101,7 +101,8 @@ npm run format
 
 ## Related
 
-- [SoraPure Web](https://github.com/bakhtiersizhaev/sorapure) - Web version
+- [SoraPure Web](https://sorapure.vercel.app) - Web version (live)
+- [GitHub: sorapure](https://github.com/bakhtiersizhaev/sorapure) - Web source code
 
 ## License
 

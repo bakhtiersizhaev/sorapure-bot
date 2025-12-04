@@ -16,8 +16,9 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/summerlinex/sorapure-bot"
+        "url": "https://github.com/bakhtiersizhaev/sorapure-bot"
     },
+    "homepage": "https://sorapure.vercel.app",
     "keywords": [
         "sora",
         "sora2",

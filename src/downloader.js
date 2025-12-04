@@ -19,6 +19,9 @@ const DELOGO = { x: 'iw-160', y: 'ih-60', w: 150, h: 50 };
 
 // Endpoints (base64 encoded)
 const ENDPOINTS = {
+    // Primary CDN - fastest, direct access
+    CDN_DIRECT: 'aHR0cHM6Ly9vc2NkbjIuZHl5c3kuY29tL01QNC8=', // oscdn2.dyysy.com/MP4/
+    // Fallback CDN proxy
     CDN_PROXY: 'aHR0cHM6Ly9hcGkuc29yYWNkbi53b3JrZXJzLmRldi9kb3dubG9hZC1wcm94eT9pZD0=',
     SORA_API: 'aHR0cHM6Ly9zb3JhLmNoYXRncHQuY29tL2JhY2tlbmQvcHJvamVjdF95L3Bvc3Qv',
     OPENAI_CDN: 'aHR0cHM6Ly9jZG4ub3BlbmFpLmNvbS9NUDQv',
@@ -26,6 +29,7 @@ const ENDPOINTS = {
 
 export const Source = {
     NONE: -1,
+    CDN_DIRECT: 0, // New fastest source
     CDN_PROXY: 1,
     SORA_API: 2,
     OPENAI_CDN: 3,
@@ -35,6 +39,29 @@ export const Source = {
 const decode = (s) => Buffer.from(s, 'base64').toString('utf-8');
 
 export const extractVideoId = (url) => url.match(VIDEO_ID_PATTERN)?.[1] || null;
+
+/**
+ * Get CDN URL for video (without downloading)
+ * @param {string} videoId - Video ID
+ * @returns {Promise<{url: string, exists: boolean}>}
+ */
+export async function getVideoUrl(videoId) {
+    const cdnUrl = decode(ENDPOINTS.CDN_PROXY) + videoId;
+
+    try {
+        const res = await axios.head(cdnUrl, {
+            timeout: 10000,
+            headers: { 'User-Agent': USER_AGENT },
+        });
+
+        // Check if video exists (200 and content-type is video)
+        const isVideo = res.headers['content-type']?.includes('video');
+        return { url: cdnUrl, exists: res.status === 200 && isVideo };
+    } catch {
+        // HEAD failed, but URL might still work
+        return { url: cdnUrl, exists: false };
+    }
+}
 
 const formatSize = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -49,6 +76,28 @@ const safeDelete = (filePath) => {
 };
 
 // Download strategies
+
+// NEW: Direct CDN - fastest source (oscdn2.dyysy.com)
+async function fromCdnDirect(videoId) {
+    try {
+        const url = `${decode(ENDPOINTS.CDN_DIRECT)}${videoId}.mp4`;
+        const res = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            timeout: REQUEST_TIMEOUT,
+            headers: { 'User-Agent': USER_AGENT },
+        });
+
+        if (res.status === 200 && res.headers['content-type']?.includes('video')) {
+            return res;
+        }
+    } catch {
+        // Silent fail, try next method
+    }
+    return null;
+}
+
 async function fromCdnProxy(videoId, requestId) {
     try {
         const res = await axios({
@@ -184,13 +233,21 @@ export async function downloadVideo(url, options = {}) {
         let source = Source.NONE;
         let needsProcessing = false;
 
-        // Try CDN proxy first (no watermark)
-        stream = await fromCdnProxy(videoId, hash);
+        // 1. Try Direct CDN first - FASTEST (oscdn2.dyysy.com)
+        stream = await fromCdnDirect(videoId);
         if (stream) {
-            source = Source.CDN_PROXY;
+            source = Source.CDN_DIRECT;
         }
 
-        // Try Sora API
+        // 2. Try CDN proxy (fallback)
+        if (!stream) {
+            stream = await fromCdnProxy(videoId, hash);
+            if (stream) {
+                source = Source.CDN_PROXY;
+            }
+        }
+
+        // 3. Try Sora API
         if (!stream) {
             const result = await fromSoraApi(videoId, token, cookies);
             if (result) {
@@ -200,7 +257,7 @@ export async function downloadVideo(url, options = {}) {
             }
         }
 
-        // Try OpenAI CDN
+        // 4. Try OpenAI CDN
         if (!stream) {
             stream = await fromOpenAiCdn(videoId);
             if (stream) source = Source.OPENAI_CDN;
@@ -246,8 +303,10 @@ export async function downloadVideo(url, options = {}) {
  */
 export function getSourceName(source) {
     switch (source) {
+        case Source.CDN_DIRECT:
+            return 'Direct CDN (Fast)';
         case Source.CDN_PROXY:
-            return 'CDN Proxy (No Watermark)';
+            return 'CDN Proxy';
         case Source.SORA_API:
             return 'Sora API';
         case Source.OPENAI_CDN:
