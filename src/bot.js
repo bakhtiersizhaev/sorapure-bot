@@ -1,134 +1,115 @@
-// SoraPure Bot - SERVICE DISCONTINUED
-// December 2025: OpenAI patched all methods
-
 import 'dotenv/config';
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
+import { downloadVideo, extractVideoId, getSourceName } from './downloader.js';
 
+// Configuration
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const SORA_TOKEN = process.env.SORA_BEARER_TOKEN || '';
+const SORA_COOKIES = process.env.SORA_COOKIES || '';
 
 if (!BOT_TOKEN) {
-    console.error('Error: BOT_TOKEN is required');
+    console.error('Error: BOT_TOKEN is required in .env file');
     process.exit(1);
 }
 
+// Create bot
 const bot = new Bot(BOT_TOKEN);
 
-// ═══════════════════════════════════════════════════════════════
-// Shutdown Messages
-// ═══════════════════════════════════════════════════════════════
+// Escape MarkdownV2 special characters
+const escapeMarkdown = (text) => text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 
-const MESSAGE_RU = `⚠️ SoraPure больше не работает.
+// Messages
+const MESSAGES = {
+    start: `🎬 *SoraPure Bot*
 
-🔒 Что произошло?
-OpenAI перенесли все видео Sora на защищённые серверы Azure (Microsoft). Теперь система работает так:
+Скачивай видео из OpenAI Sora2 без водяного знака\\!
 
-• Бесплатные аккаунты — все видео только с водяным знаком
-• Платные аккаунты (Pro) — без водяного знака, но только свои собственные видео
+*Как использовать:*
+Отправь ссылку на видео или код:
+• sora\\.chatgpt\\.com/p/s\\_xxxxx
+• s\\_xxxxx
 
-API проверяет:
-→ is_owner: true + подписка Pro → есть доступ ✅
-→ is_owner: false (чужое видео) → водяной знак ❌
-→ Бесплатный аккаунт → водяной знак ❌
+—
+🌐 Веб: sorapure\\.vercel\\.app
+👤 Автор: @bakhtier\\_sizhaev`,
 
-Мы исследовали все методы — обойти это ограничение на данный момент невозможно.
+    help: `*Помощь*
 
-Если найдём способ — вернём сервис в работу и сообщим!
+Просто отправь мне ссылку на видео из Sora:
+sora\\.chatgpt\\.com/p/s\\_xxxxx
 
-Спасибо, что пользовались сервисом! 🙏
+Или только код видео:
+s\\_xxxxx
 
-— @bakhtier_sizhaev | @ai2key`;
+Я скачаю видео без водяного знака и отправлю тебе\\!`,
 
-const MESSAGE_EN = `⚠️ SoraPure no longer works.
+    invalidUrl: '❌ Неверная ссылка\\. Отправь ссылку вида:\nsora\\.chatgpt\\.com/p/s\\_xxxxx',
+    downloading: '⏳ Скачиваю видео...',
+    error: '❌ Ошибка: ',
+};
 
-🔒 What happened?
-OpenAI moved all Sora videos to protected Azure (Microsoft) servers. Now the system works like this:
-
-• Free accounts — all videos have watermark only
-• Paid accounts (Pro) — watermark-free, but only your own videos
-
-API checks:
-→ is_owner: true + Pro subscription → access granted ✅
-→ is_owner: false (someone's video) → watermarked ❌
-→ Free account → watermarked ❌
-
-We've researched all methods — bypassing this restriction is not possible at this time.
-
-If we find a way — we'll bring the service back and let you know!
-
-Thank you for using the service! 🙏
-
-— @bakhtier_sizhaev | @ai2key`;
-
-// ═══════════════════════════════════════════════════════════════
-// Language Selection
-// ═══════════════════════════════════════════════════════════════
-
-function langKeyboard() {
-    return {
-        inline_keyboard: [
-            [
-                { text: '🇷🇺 Русский', callback_data: 'lang:ru' },
-                { text: '🇺🇸 English', callback_data: 'lang:en' },
-            ],
-        ],
-    };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Handlers - All show shutdown message
-// ═══════════════════════════════════════════════════════════════
-
-// /start - Show language selection then shutdown message
+// Handlers
 bot.command('start', async (ctx) => {
-    await ctx.reply('🌐 Choose language / Выберите язык:', {
-        reply_markup: langKeyboard()
-    });
+    await ctx.reply(MESSAGES.start, { parse_mode: 'MarkdownV2' });
 });
 
-// Language selection callback
-bot.callbackQuery(/^lang:(.+)$/, async (ctx) => {
-    const lang = ctx.match[1];
-    await ctx.answerCallbackQuery();
-    await ctx.deleteMessage().catch(() => { });
-
-    if (lang === 'ru') {
-        await ctx.reply(MESSAGE_RU);
-    } else {
-        await ctx.reply(MESSAGE_EN);
-    }
-});
-
-// /help
 bot.command('help', async (ctx) => {
-    await ctx.reply('🌐 Choose language / Выберите язык:', {
-        reply_markup: langKeyboard()
-    });
+    await ctx.reply(MESSAGES.help, { parse_mode: 'MarkdownV2' });
 });
 
-// Any text message - show shutdown message
+// Handle video URL/code
 bot.on('message:text', async (ctx) => {
-    // Try to detect Russian
     const text = ctx.message.text;
-    const isRussian = /[а-яА-ЯёЁ]/.test(text);
+    console.log(`📩 Received: "${text}"`);
 
-    if (isRussian) {
-        await ctx.reply(MESSAGE_RU);
-    } else {
-        await ctx.reply(MESSAGE_EN);
+    const videoId = extractVideoId(text);
+    console.log(`🎬 Video ID: ${videoId}`);
+
+    if (!videoId) {
+        await ctx.reply(MESSAGES.invalidUrl, { parse_mode: 'MarkdownV2' });
+        return;
+    }
+
+    // Send "downloading" status
+    const statusMsg = await ctx.reply(MESSAGES.downloading);
+    console.log(`⏳ Downloading video: ${videoId}`);
+
+    try {
+        const result = await downloadVideo(text, {
+            token: SORA_TOKEN,
+            cookies: SORA_COOKIES,
+        });
+
+        console.log(`✅ Downloaded: ${result.filename} (${result.size})`);
+
+        // Delete status message
+        await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
+
+        // Send video
+        const caption = `✅ *${escapeMarkdown(result.filename)}*\n📦 Размер: ${escapeMarkdown(result.size)}\n🔗 Источник: ${escapeMarkdown(getSourceName(result.source))}${result.delogoApplied ? '\n🎨 Водяной знак удалён' : ''}`;
+        await ctx.replyWithVideo(new InputFile(result.buffer, result.filename), {
+            caption,
+            parse_mode: 'MarkdownV2',
+        });
+        console.log(`📤 Video sent!`);
+    } catch (err) {
+        console.error(`❌ Error: ${err.message}`);
+        // Update status message with error
+        await ctx.api
+            .editMessageText(ctx.chat.id, statusMsg.message_id, `${MESSAGES.error}${err.message}`)
+            .catch(() => {});
     }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Error Handler & Start
-// ═══════════════════════════════════════════════════════════════
-
+// Error handler
 bot.catch((err) => {
-    console.error('Bot error:', err.message);
+    console.error('Bot error:', err);
 });
 
-console.log('🤖 SoraPure Bot starting (SHUTDOWN MODE)...');
+// Start bot
+console.log('🤖 SoraPure Bot starting...');
 bot.start({
     onStart: (botInfo) => {
-        console.log(`⚠️ @${botInfo.username} is running in SHUTDOWN MODE`);
+        console.log(`✅ Bot @${botInfo.username} is running!`);
     },
 });
