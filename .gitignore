@@ -22,3 +22,7 @@ npm-debug.log*
 # Build
 dist/
 build/
+
+# Temp files
+.tempfiles/
+*.mp4
